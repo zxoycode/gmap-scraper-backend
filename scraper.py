@@ -1,86 +1,40 @@
-# scraper.py
-import asyncio
-from playwright.async_api import async_playwright
+import os
+import requests
 
-async def scrape_reviews(url: str, limit: int = 150):
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+
+def fetch_reviews(query: str, limit: int = 150):
     """
-    使用 Playwright 打開 Google Maps，點進評論視窗，
-    一直往下捲，最多抓到 limit 則評論。
+    使用 Serper.dev 搜尋 Google Maps，並回傳評論。
+    query 可以是：店名 or Google Maps 網址
     """
-    reviews = []
-    seen_texts = set()
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+    url = "https://google.serper.dev/places"
 
-        # 開啟 Google Maps 連結
-        await page.goto(url, timeout=60000)
+    payload = {
+        "q": query
+    }
 
-        # 嘗試點「更多評論」按鈕（aria-label 可能會有「評論」字樣）
-        try:
-            # 中文介面
-            btn = page.locator('button[aria-label*="評論"]')
-            if await btn.count() == 0:
-                # 英文介面備援
-                btn = page.locator('button[aria-label*="reviews"]')
-            await btn.first.click()
-        except Exception:
-            # 若沒有評論按鈕，就直接結束
-            await browser.close()
-            return []
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,
+        "Content-Type": "application/json"
+    }
 
-        # 等評論視窗出現
-        await page.wait_for_timeout(2000)
+    res = requests.post(url, json=payload, headers=headers)
+    data = res.json()
 
-        # 評論區可捲動容器，可能是 role="region" 或 aria-label 包含「評論」
-        scrollable = page.locator('div[aria-label*="評論"]')
-        if await scrollable.count() == 0:
-            scrollable = page.locator('div[role="region"]')
+    # Serper 回傳格式：
+    # "reviews": [
+    #   {"rating": 5, "snippet": "...", "source": "Google Reviews"},
+    #   ...
+    # ]
 
-        # 迴圈往下捲動並收集評論
-        while len(reviews) < limit:
-            # 找出每一則評論的區塊
-            blocks = await page.locator('div[data-review-id]').all()
+    if "reviews" not in data:
+        return []
 
-            for block in blocks:
-                if len(reviews) >= limit:
-                    break
+    reviews = data["reviews"][:limit]
 
-                # 評分
-                try:
-                    rating_span = block.locator('span[aria-label$="顆星級評分"]')
-                    if await rating_span.count() == 0:
-                        rating_span = block.locator('span[aria-label*="stars"]')
-                    rating = await rating_span.first.get_attribute('aria-label')
-                except Exception:
-                    rating = ""
+    # 轉成統一格式
+    parsed = [{"rating": r.get("rating"), "text": r.get("snippet", "")} for r in reviews]
 
-                # 文字
-                try:
-                    text_el = block.locator('.MyEned')  # 主要評論文字
-                    text = (await text_el.inner_text()).strip()
-                except Exception:
-                    text = ""
-
-                if not text:
-                    continue
-                if text in seen_texts:
-                    continue
-
-                seen_texts.add(text)
-                reviews.append({
-                    "rating": rating,
-                    "text": text
-                })
-
-            # 捲動評論視窗
-            if await scrollable.count() == 0:
-                break  # 找不到可捲動區域就離開
-
-            await scrollable.evaluate("(el) => el.scrollBy(0, 2000)")
-            await page.wait_for_timeout(800)
-
-        await browser.close()
-
-    return reviews[:limit]
+    return parsed
