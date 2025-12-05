@@ -5,8 +5,8 @@ import re
 
 app = FastAPI()
 
-OX_USERNAME = "YOUR_USERNAME"      # ← 放你的 username
-OX_PASSWORD = "YOUR_PASSWORD"      # ← 放你的 password
+OX_USERNAME = "sylvia_X9skB"      # ← 放你的 username
+OX_PASSWORD = "=E201316a123"      # ← 放你的 password
 
 ENDPOINT = "https://realtime.oxylabs.io/v1/queries"
 
