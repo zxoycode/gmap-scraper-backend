@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 import requests
 import json
 import re
+import os
 
 app = FastAPI()
 
@@ -12,7 +13,7 @@ ENDPOINT = "https://realtime.oxylabs.io/v1/queries"
 
 
 # -----------------------------
-# 🔧 1. 展開 Google Maps 短網址
+# 🔧 展開 Google Maps 短網址
 # -----------------------------
 def expand_short_url(url: str) -> str:
     try:
@@ -23,7 +24,7 @@ def expand_short_url(url: str) -> str:
 
 
 # -----------------------------
-# 🔧 2. 從 Google Maps URL 抽取 Place ID
+# 🔧 從 URL 抽取 Place ID
 # -----------------------------
 def extract_place_id(url: str) -> str:
     match = re.search(r"/place/([^/]+)", url)
@@ -33,7 +34,7 @@ def extract_place_id(url: str) -> str:
 
 
 # -----------------------------
-# 🔧 3. 從 Oxylabs 抓取 Google Maps Review（翻頁）
+# 🔧 Oxylabs API 抓取評論
 # -----------------------------
 def fetch_reviews(place_url: str, limit: int = 150):
 
@@ -68,7 +69,7 @@ def fetch_reviews(place_url: str, limit: int = 150):
 
 
 # -----------------------------
-# 🔧 4. API Route 入口
+# 🔧 API 入口
 # -----------------------------
 @app.get("/scrape")
 def scrape(
