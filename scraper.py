@@ -2,8 +2,8 @@ import requests
 import os
 import re
 
-OX_USERNAME = os.getenv("OX_USERNAME")
-OX_PASSWORD = os.getenv("OX_PASSWORD")
+OX_USERNAME = os.getenv("sylvia_X9skB")
+OX_PASSWORD = os.getenv("=E201316a123")
 
 ENDPOINT = "https://realtime.oxylabs.io/v1/queries"
 
