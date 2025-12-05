@@ -1,80 +1,21 @@
-from fastapi import FastAPI, HTTPException, Query
-import requests
-import json
-import re
-import os
+from fastapi import FastAPI, Query, HTTPException
+from scraper import fetch_reviews
 
 app = FastAPI()
 
-OX_USERNAME = os.getenv("OX_USERNAME")
-OX_PASSWORD = os.getenv("OX_PASSWORD")
 
-ENDPOINT = "https://realtime.oxylabs.io/v1/queries"
-
-
-# -----------------------------
-# 🔧 展開 Google Maps 短網址
-# -----------------------------
-def expand_short_url(url: str) -> str:
-    try:
-        resp = requests.head(url, allow_redirects=True, timeout=10)
-        return resp.url
-    except:
-        return url
+@app.get("/")
+def root():
+    return {"message": "Google Maps Review Scraper API is running"}
 
 
-# -----------------------------
-# 🔧 從 URL 抽取 Place ID
-# -----------------------------
-def extract_place_id(url: str) -> str:
-    match = re.search(r"/place/([^/]+)", url)
-    if match:
-        return match.group(1)
-    return None
-
-
-# -----------------------------
-# 🔧 Oxylabs API 抓取評論
-# -----------------------------
-def fetch_reviews(place_url: str, limit: int = 150):
-
-    place_url = expand_short_url(place_url)
-
-    payload = {
-        "source": "google_maps_reviews",
-        "query": place_url,
-        "parse": True,
-        "context": {
-            "reviews_limit": limit
-        }
-    }
-
-    response = requests.post(
-        ENDPOINT,
-        auth=(OX_USERNAME, OX_PASSWORD),
-        json=payload,
-        timeout=60
-    )
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail=response.text)
-
-    data = response.json()
-    reviews = data.get("results", [{}])[0].get("reviews", [])
-
-    return {
-        "count": len(reviews),
-        "reviews": reviews
-    }
-
-
-# -----------------------------
-# 🔧 API 入口
-# -----------------------------
 @app.get("/scrape")
 def scrape(
-    url: str = Query(..., description="Google Maps URL（支援短網址）"),
+    url: str = Query(..., description="Google Maps URL（支援短網址 maps.app.goo.gl）"),
     limit: int = Query(150, description="評論數量（預設 150）")
 ):
-    result = fetch_reviews(url, limit)
-    return result
+    try:
+        result = fetch_reviews(url, limit)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
