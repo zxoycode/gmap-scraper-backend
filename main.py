@@ -1,99 +1,79 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 import requests
-import os
-from urllib.parse import urlparse, unquote
+import json
+import re
 
 app = FastAPI()
 
-SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
+OX_USERNAME = "YOUR_USERNAME"      # ← 放你的 username
+OX_PASSWORD = "YOUR_PASSWORD"      # ← 放你的 password
 
-# -------------------------
-# 工具：從 Google Maps URL 中提取地點名稱
-# -------------------------
-def extract_place_from_url(url: str) -> str | None:
+ENDPOINT = "https://realtime.oxylabs.io/v1/queries"
+
+
+# -----------------------------
+# 🔧 1. 展開 Google Maps 短網址
+# -----------------------------
+def expand_short_url(url: str) -> str:
     try:
-        parsed = urlparse(url)
-
-        # 短網址 maps.app.goo.gl -> 自動展開
-        if "maps.app.goo.gl" in parsed.netloc:
-            expanded = requests.get(url, allow_redirects=True).url
-            return extract_place_from_url(expanded)
-
-        # 長網址格式：/maps/place/<名稱>/
-        if "google.com" in parsed.netloc and "/maps/place/" in parsed.path:
-            part = parsed.path.split("/maps/place/")[1]
-            name = part.split("/")[0]
-            name = unquote(name.replace("+", " "))
-            return name
-
-        return None
+        resp = requests.head(url, allow_redirects=True, timeout=10)
+        return resp.url
     except:
-        return None
+        return url
 
 
-# -------------------------
-# 主要 API：抓評論
-# -------------------------
-@app.get("/scrape")
-def scrape_reviews(query: str = Query(...), limit: int = 20):
-    """
-    query = 餐廳名稱 或 Google Maps 連結（短/長）
-    limit = 要抓的評論數（最多 ~150）
-    """
+# -----------------------------
+# 🔧 2. 從 Google Maps URL 抽取 Place ID
+# -----------------------------
+def extract_place_id(url: str) -> str:
+    match = re.search(r"/place/([^/]+)", url)
+    if match:
+        return match.group(1)
+    return None
 
-    # 1. 如果 query 是網址 → 先解析地點名稱
-    if query.startswith("http"):
-        extracted = extract_place_from_url(query)
-        if extracted:
-            place = extracted
-        else:
-            return {"error": "無法解析網址，請確認是否為有效的 Google Maps 連結"}
-    else:
-        place = query  # 使用者直接輸入店名
 
-    # 2. Serper.dev 查詢
-    url = "https://google.serper.dev/localReviews"
+# -----------------------------
+# 🔧 3. 從 Oxylabs 抓取 Google Maps Review（翻頁）
+# -----------------------------
+def fetch_reviews(place_url: str, limit: int = 150):
+
+    place_url = expand_short_url(place_url)
 
     payload = {
-        "q": place,
-        "num": min(limit, 150)  # Serper 最佳效果範圍
+        "source": "google_maps_reviews",
+        "query": place_url,
+        "parse": True,
+        "context": {
+            "reviews_limit": limit
+        }
     }
 
-    headers = {
-        "X-API-KEY": SERPER_API_KEY,
-        "Content-Type": "application/json"
-    }
+    response = requests.post(
+        ENDPOINT,
+        auth=(OX_USERNAME, OX_PASSWORD),
+        json=payload,
+        timeout=60
+    )
 
-    res = requests.post(url, json=payload, headers=headers)
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail=response.text)
 
-    if res.status_code != 200:
-        return {"error": "Serper API 發生錯誤", "detail": res.text}
-
-    data = res.json()
-
-    # 如果沒有評論
-    if "reviews" not in data:
-        return {"query": place, "count": 0, "reviews": []}
-
-    reviews_raw = data["reviews"]
-
-    # 整理成你前端好用的格式
-    reviews = []
-    for r in reviews_raw:
-        reviews.append({
-            "rating": r.get("rating"),
-            "text": r.get("snippet", ""),
-            "date": r.get("date"),
-            "author": r.get("author")
-        })
+    data = response.json()
+    reviews = data.get("results", [{}])[0].get("reviews", [])
 
     return {
-        "query": place,
         "count": len(reviews),
         "reviews": reviews
     }
 
 
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "Google Maps Review Scraper backend is running"}
+# -----------------------------
+# 🔧 4. API Route 入口
+# -----------------------------
+@app.get("/scrape")
+def scrape(
+    url: str = Query(..., description="Google Maps URL（支援短網址）"),
+    limit: int = Query(150, description="評論數量（預設 150）")
+):
+    result = fetch_reviews(url, limit)
+    return result
